@@ -1,21 +1,11 @@
-import cv2
-#import habitat
 import numpy as np
-#from habitat.sims.habitat_simulator.actions import HabitatSimActions
 import time
-
-FORWARD_KEY="w"
-LEFT_KEY="a"
-RIGHT_KEY="d"
-FINISH="f"
-SAVE="s"
+import cv2
 
 class ObstacleAvoidAgent():
     '''
     Agent to take the depth image to generate steering yaw rate to avoid 
     the obstacles surrounding it.
-    TODO:
-    - [] Gate detection.
     '''
     def __init__(self):
         self.lambda_avoid = 10 #
@@ -31,10 +21,8 @@ class ObstacleAvoidAgent():
     def image_read_from_png(self, image):
         self.image = (image / 255).astype(np.float32)
 
-
     def image_read(self, image):
         self.image = image.astype(np.float32)
-
 
     def _get_horizontal_strip(self, offset):
         '''
@@ -51,6 +39,9 @@ class ObstacleAvoidAgent():
         bin_lower = self.horiz_middle + 2 * self.bin_width + 4
 
         self.strip = self.image[(bin_upper + offset) : (bin_lower + offset)]
+
+        # visualize the strip
+        cv2.imwrite("intermediate/strip.png", self.strip)
 
 
     def _generate_depth_set(self):
