@@ -4,7 +4,7 @@ import cv2
 
 import numpy as np
 import airsim
-from disparity import compute_disparity_py
+# from disparity import compute_disparity_py
 
 def point_to_segment_distance(px, py, ax, ay, bx, by):
     """Calculate the distance from a point (px, py) to a line segment (ax, ay)-(bx, by) in 2D."""
@@ -84,33 +84,23 @@ def transform_trajectory(trajectory, scalar):
 
 def compute_disparity(left, right, min_disparity, max_disparity, half_block_size):
     height, width = left.shape
-    disparity = np.zeros((height-(max_disparity-min_disparity)-2*half_block_size, width-2*half_block_size), dtype=np.int8)
-
-    # Pad the images to handle the block size
-    pad_size = half_block_size + max_disparity
-    left_padded = np.pad(left, ((pad_size, pad_size), (pad_size, pad_size)), mode='constant', constant_values=0)
-    right_padded = np.pad(right, ((pad_size, pad_size), (pad_size, pad_size)), mode='constant', constant_values=0)
+    # print(f"height: {height}, width: {width}")
+    disparity = np.zeros((height-2*half_block_size, width-(max_disparity-min_disparity)-2*half_block_size), dtype=np.int8)
 
     for i in range(half_block_size, height - half_block_size):
-        for j in range(half_block_size, width - half_block_size):
+        for j in range(half_block_size - min_disparity, width - half_block_size - max_disparity):
             min_SAD = np.iinfo(np.int32).max
-            best_offset = 0
-
-            # Extract the left block
-            left_block = left_padded[i:i + 2 * half_block_size + 1, j:j + 2 * half_block_size + 1]
-
             for offset in range(min_disparity, max_disparity):
-                # Extract the right block with the offset
-                right_block = right_padded[i:i + 2 * half_block_size + 1, j + offset:j + offset + 2 * half_block_size + 1]
-
-                # Compute the SAD for the current offset
-                SAD = np.sum(np.abs(left_block - right_block))
-
+                SAD = 0
+                for l_r in range(i - half_block_size, half_block_size + i):
+                    for l_c in range(j - half_block_size, half_block_size + j):
+                        r_r = l_r
+                        r_c = l_c + offset
+                        SAD += abs(int(left[l_r, l_c]) - int(right[r_r, r_c]))
                 if SAD < min_SAD:
                     min_SAD = SAD
-                    best_offset = offset
-
-            disparity[i-half_block_size, j-half_block_size] = best_offset
+                    disparity[i-half_block_size, j-half_block_size] = offset
+                    
     disparity = cv2.normalize(disparity, disparity, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
     return disparity
 
@@ -138,7 +128,7 @@ def simple_max_pooling(image, pool_size):
 
 class AirSimEnv(gym.Env):
 
-    def __init__(self, *args, vehicle="drone", airsim_ip="localhost", airsim_port=8187, random_yaw=None, random_pos=None, trajectory=None, destination=None, **kwargs):
+    def __init__(self, *args, vehicle="drone", airsim_ip="localhost", airsim_port=12138, random_yaw=None, random_pos=None, trajectory=None, destination=None, **kwargs):
         super(AirSimEnv, self ).__init__()
         
         # Define action and observation space
@@ -220,10 +210,13 @@ class AirSimEnv(gym.Env):
             camera_observation = cv2.resize(right_png, (self.image_dim, self.image_dim))
             left_grey_img = cv2.cvtColor(left_png, cv2.COLOR_BGR2GRAY)
             right_grey_img = cv2.cvtColor(right_png, cv2.COLOR_BGR2GRAY)
+            
+            left_grey_img = cv2.resize(left_grey_img, (self.image_dim, self.image_dim))
+            right_grey_img = cv2.resize(right_grey_img, (self.image_dim, self.image_dim))
 
             # Compute disparity (assuming you have a function compute_disparity_py)
-            disp_orig = compute_disparity_py(right_grey_img, left_grey_img, 0, 32, 4)
-            disp_orig = np.clip(disp_orig, 0, 31).astype(np.uint8) * 8
+            disp = compute_disparity(right_grey_img, left_grey_img, 0, self.search_range, self.block_size//2)
+            # disp= np.clip(disp_orig, 0, 31).astype(np.uint8) * 8
             # disp = cv2.resize(disp_orig, (self.image_dim, self.image_dim))
         else:
             disp = np.zeros((self.image_dim, self.image_dim), dtype=np.uint8)
@@ -249,13 +242,14 @@ class AirSimEnv(gym.Env):
             "sobel": sobel_magnitude
         }
 
-        cv2.imshow("AirSim Camera Feed", observation['camera'])
-        cv2.imshow("AirSim Disparity Feed", observation['disp'])
-        cv2.imshow("AirSim Sobel Feed", observation['sobel'])
+        # cv2.imshow("AirSim Camera Feed", observation['camera'])
+        # cv2.imshow("AirSim Disparity Feed", observation['disp'])
+        # cv2.imshow("AirSim Sobel Feed", observation['sobel'])
 
-        # cv2.imwrite("intermediate/camera.png", observation['camera'])
-        # cv2.imwrite("intermediate/disparity.png", observation['disp'])
-        # cv2.imwrite("intermediate/sobel.png", observation['sobel'])
+        cv2.imwrite("intermediate/left.png", left_grey_img)
+        cv2.imwrite("intermediate/right.png", right_grey_img)
+        cv2.imwrite("intermediate/disparity.png", observation['disp'])
+        cv2.imwrite("intermediate/sobel.png", observation['sobel'])
         cv2.waitKey(1)  # 1 millisecond delay to allow OpenCV to process events
 
         return observation
