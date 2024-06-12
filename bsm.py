@@ -53,9 +53,47 @@ class ObstacleAvoidAgent():
         averaged_depth = self.strip.mean(axis=0)
         for i in range(self.num_of_bins):
             self.depth_set[i] = averaged_depth[i * self.bin_width : (i + 1) * self.bin_width].mean()
-        #print("depth bin:", self.depth_set)
+        print("depth bin:", self.depth_set)
     
-    
+
+    def steering_behavior(self, pitch_offset):
+        '''
+        Based on the behavior arbitration scheme & depth bins, generate steering policy.
+        Turning right is positive yaw.
+        '''
+        state = 'avoidance'
+        self._get_horizontal_strip(offset=pitch_offset)
+        self._generate_depth_set()
+        relative_index = self.num_of_bins / 2 - 0.5
+
+        min_dips = np.argmin(self.depth_set)
+        goal_steer = 0.3 * (relative_index - min_dips) # previously 0.2
+
+        # if obstacle in front
+        edge_bin_indexes = [0, 1, 2, 5, 6, 7]
+        edge_bins = [self.depth_set[i] for i in edge_bin_indexes]
+        center_bins = [self.depth_set[3], self.depth_set[4]]
+        print(np.average(center_bins), np.average(edge_bins))
+        if np.average(center_bins) >= 1.09*(np.average(edge_bins)):
+            #print("obstacle in front, turning")
+            state = 'obstacle_in_front'
+            steer = -1.0
+
+        # if wall in front
+        elif np.var(self.depth_set) <= 1e-5:
+            #print("wall in front, turning")
+            state = 'wall_in_front'
+            steer = -0.5
+        else:
+            # behavior scheme
+            state = 'behavioral'
+            steer = self.lambda_avoid * np.array([(relative_index - i) * np.exp(-self.constant_obst * self.depth_set[i]) * \
+                        np.exp(-(i - relative_index)**2 / (2 * self.sigma**2)) for i in range(self.num_of_bins)]).sum()
+            steer += goal_steer
+        #print(steer, goal_steer, (steer + goal_steer))
+
+        return -steer, state    
+
     def steering(self, pitch_offset):
         '''
         Based on the behavior arbitration scheme & depth bins, generate steering policy.
@@ -84,43 +122,6 @@ class ObstacleAvoidAgent():
             # behavior scheme
             steer = self.lambda_avoid * np.array([(relative_index - i) * np.exp(-self.constant_obst * self.depth_set[i]) * \
                         np.exp(-(i - relative_index)**2 / (2 * self.sigma**2)) for i in range(self.num_of_bins)]).sum()
-
-        return -steer, state
-
-
-    def steering_behavior(self, pitch_offset):
-        '''
-        Based on the behavior arbitration scheme & depth bins, generate steering policy.
-        Turning right is positive yaw.
-        '''
-        state = 'avoidance'
-        self._get_horizontal_strip(offset=pitch_offset)
-        self._generate_depth_set()
-        relative_index = self.num_of_bins / 2 - 0.5
-
-        min_dips = np.argmin(self.depth_set)
-        goal_steer = 0.3 * (relative_index - min_dips) # previously 0.2
-
-        # if obstacle in front
-        edge_bin_indexes = [0, 1, 2, 5, 6, 7]
-        edge_bins = [self.depth_set[i] for i in edge_bin_indexes]
-        center_bins = [self.depth_set[3], self.depth_set[4]]
-        if np.average(center_bins) >= 1.09*(np.average(edge_bins)):
-            #print("obstacle in front, turning")
-            state = 'obstacle_in_front'
-            steer = -1.0
-
-        # if wall in front
-        elif np.var(self.depth_set) <= 1e-5:
-            #print("wall in front, turning")
-            state = 'wall_in_front'
-            steer = -0.5
-        else:
-            # behavior scheme
-            steer = self.lambda_avoid * np.array([(relative_index - i) * np.exp(-self.constant_obst * self.depth_set[i]) * \
-                        np.exp(-(i - relative_index)**2 / (2 * self.sigma**2)) for i in range(self.num_of_bins)]).sum()
-            steer += goal_steer
-        #print(steer, goal_steer, (steer + goal_steer))
 
         return -steer, state
 
